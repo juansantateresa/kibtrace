@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+DIST_BIN="$REPO_ROOT/dist/cli/main.js"
+
+if [ -f "$DIST_BIN" ]; then
+  exec node "$DIST_BIN" "$@"
+fi
+
+if [ -x "$REPO_ROOT/node_modules/.bin/tsc" ]; then
+  echo "kibtrace wrapper: build the package first with 'npm run build'." >&2
+  exit 1
+fi
+
+echo "kibtrace wrapper: local build not found. Install dependencies and run 'npm run build' first." >&2
+exit 1
+
