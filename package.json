@@ -1,0 +1,28 @@
+{
+  "name": "kibtrace",
+  "version": "0.1.0",
+  "description": "Kibana-to-code incident investigation package for Claude Code workflows.",
+  "type": "module",
+  "bin": {
+    "kibtrace": "./dist/cli/main.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}
+
