@@ -1,0 +1,83 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: kibtrace-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "${ES_PORT}:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    container_name: kibtrace-kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTED_SAVED_OBJECTS_KEY}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_SECURITY_ENCRYPTION_KEY}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_REPORTING_ENCRYPTION_KEY}
+    ports:
+      - "${KIBANA_PORT}:5601"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: kibtrace-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  cv-db-failure-app:
+    build:
+      context: ../../seed-projects/cv-db-failure-app
+    container_name: kibtrace-cv-db-failure-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LOG_FILE: /app/logs/cv-db-failure-app.ndjson
+      SERVICE_NAME: ${APP_SERVICE_NAME}
+      SERVICE_VERSION: ${APP_SERVICE_VERSION}
+      CAMERA_ID: ${APP_CAMERA_ID}
+      MODEL_VERSION: ${APP_MODEL_VERSION}
+      DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION}
+      FRAME_INTERVAL_MS: ${APP_FRAME_INTERVAL_MS}
+      INCIDENT_MODE: ${APP_INCIDENT_MODE}
+      LOG_LEVEL: ${APP_LOG_LEVEL}
+    volumes:
+      - app-logs:/app/logs
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${STACK_VERSION}
+    container_name: kibtrace-filebeat
+    user: root
+    depends_on:
+      - elasticsearch
+      - cv-db-failure-app
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - app-logs:/var/log/kibtrace:ro
+      - filebeat-data:/usr/share/filebeat/data
+
+volumes:
+  es-data:
+  pg-data:
+  app-logs:
+  filebeat-data:

@@ -1,0 +1,31 @@
+filebeat.inputs:
+  - type: filestream
+    id: kibtrace-cv-db-failure-app
+    enabled: true
+    paths:
+      - /var/log/kibtrace/*.ndjson
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+    prospector.scanner.fingerprint.length: 64
+
+processors:
+  - add_tags:
+      tags:
+        - kibtrace
+        - sandbox
+        - cv-db-failure-app
+  - add_fields:
+      target: labels
+      fields:
+        kibtrace_sandbox: "true"
+
+setup.ilm.enabled: false
+setup.template.enabled: true
+setup.template.name: kibtrace-sandbox
+setup.template.pattern: kibtrace-sandbox-*
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "kibtrace-sandbox-%{+yyyy.MM.dd}"

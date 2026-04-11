@@ -1,0 +1,47 @@
+2026-04-07 10:15:01.234 INFO  [order-service] Application started on port 8080
+2026-04-07 10:15:02.100 INFO  [order-service] Connected to Redis at redis-primary:6379
+2026-04-07 10:15:02.500 INFO  [order-service] Database pool initialized: min=5, max=30
+2026-04-07 10:15:30.100 INFO  [order-service] POST /api/orders - 200 OK (45ms)
+2026-04-07 10:15:31.200 INFO  [order-service] POST /api/orders - 200 OK (52ms)
+2026-04-07 10:15:45.300 WARN  [order-service] POST /api/orders - slow response (1200ms)
+2026-04-07 10:16:01.000 ERROR [order-service] POST /api/orders - 504 Gateway Timeout after 5000ms
+2026-04-07 10:16:01.001 ERROR [order-service] java.net.SocketTimeoutException: Read timed out
+  at java.net.SocketInputStream.socketRead0(Native Method)
+  at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+  at java.net.SocketInputStream.read(SocketInputStream.java:171)
+  at com.example.orderservice.clients.PaymentClient.chargeCard(PaymentClient.java:89)
+  at com.example.orderservice.handlers.OrderHandler.createOrder(OrderHandler.java:142)
+  at com.example.orderservice.routes.OrderRoutes.handlePost(OrderRoutes.java:56)
+2026-04-07 10:16:15.000 ERROR [order-service] POST /api/orders - 504 Gateway Timeout after 5000ms
+2026-04-07 10:16:15.001 ERROR [order-service] java.net.SocketTimeoutException: Read timed out
+  at java.net.SocketInputStream.socketRead0(Native Method)
+  at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+  at java.net.SocketInputStream.read(SocketInputStream.java:171)
+  at com.example.orderservice.clients.PaymentClient.chargeCard(PaymentClient.java:89)
+  at com.example.orderservice.handlers.OrderHandler.createOrder(OrderHandler.java:142)
+  at com.example.orderservice.routes.OrderRoutes.handlePost(OrderRoutes.java:56)
+2026-04-07 10:16:30.000 ERROR [order-service] POST /api/orders - 504 Gateway Timeout after 5000ms
+2026-04-07 10:16:30.001 ERROR [order-service] java.net.SocketTimeoutException: Read timed out
+  at java.net.SocketInputStream.socketRead0(Native Method)
+  at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+  at java.net.SocketInputStream.read(SocketInputStream.java:171)
+  at com.example.orderservice.clients.PaymentClient.chargeCard(PaymentClient.java:89)
+  at com.example.orderservice.handlers.OrderHandler.createOrder(OrderHandler.java:142)
+  at com.example.orderservice.routes.OrderRoutes.handlePost(OrderRoutes.java:56)
+2026-04-07 10:16:45.000 WARN  [order-service] Circuit breaker tripped for payment-service: 3 failures in 60s
+2026-04-07 10:16:45.100 WARN  [order-service] Rejecting order requests while circuit breaker is open
+2026-04-07 10:17:00.000 ERROR [order-service] POST /api/orders - 503 Service Unavailable (circuit breaker open)
+2026-04-07 10:17:15.000 ERROR [order-service] POST /api/orders - 503 Service Unavailable (circuit breaker open)
+2026-04-07 10:17:30.000 ERROR [order-service] POST /api/orders - 503 Service Unavailable (circuit breaker open)
+2026-04-07 10:17:45.000 INFO  [order-service] Circuit breaker half-open: testing payment-service connectivity
+2026-04-07 10:17:45.500 ERROR [order-service] java.net.SocketTimeoutException: Read timed out
+  at java.net.SocketInputStream.socketRead0(Native Method)
+  at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+  at java.net.SocketInputStream.read(SocketInputStream.java:171)
+  at com.example.orderservice.clients.PaymentClient.healthCheck(PaymentClient.java:45)
+2026-04-07 10:17:45.501 WARN  [order-service] Circuit breaker re-opened: payment-service still unreachable
+2026-04-07 10:18:00.000 ERROR [order-service] POST /api/orders - 503 Service Unavailable (circuit breaker open)
+2026-04-07 10:18:15.000 INFO  [order-service] Circuit breaker half-open: testing payment-service connectivity
+2026-04-07 10:18:15.200 INFO  [order-service] Payment service health check succeeded (180ms)
+2026-04-07 10:18:15.201 INFO  [order-service] Circuit breaker closed: payment-service recovered
+2026-04-07 10:18:16.000 INFO  [order-service] POST /api/orders - 200 OK (210ms)
