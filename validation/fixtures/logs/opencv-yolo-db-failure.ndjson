@@ -1,0 +1,25 @@
+{"@timestamp":"2026-04-07T14:32:01.100Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"YOLO model loaded successfully, version=v8.2.0, weights=yolov8n.pt"}
+{"@timestamp":"2026-04-07T14:32:01.250Z","level":"INFO","service":"detection-service","component":"FrameCapture","message":"Frame capture initialized for camera cam-front-lobby, resolution=1920x1080, fps=15"}
+{"@timestamp":"2026-04-07T14:32:05.400Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"Detection cycle started, frame_id=88401, camera=cam-front-lobby"}
+{"@timestamp":"2026-04-07T14:32:05.620Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"Person detected: confidence=0.91, bbox=[420,180,680,520], frame_id=88401"}
+{"@timestamp":"2026-04-07T14:32:05.625Z","level":"INFO","service":"detection-service","component":"OpenCVTracker","message":"Tracker assigned track_id=t-3042 to detected person, frame_id=88401"}
+{"@timestamp":"2026-04-07T14:32:05.630Z","level":"INFO","service":"persistence-service","component":"DetectionWriter","message":"Persisting detection event: track_id=t-3042, type=person, camera=cam-front-lobby"}
+{"@timestamp":"2026-04-07T14:32:05.890Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Failed to write detection record: ConnectionError: connection to database at 10.0.3.12:5432 refused"}
+{"@timestamp":"2026-04-07T14:32:05.891Z","level":"ERROR","service":"persistence-service","component":"DatabasePool","message":"PostgreSQL pool exhausted: active=50, idle=0, waiting=23, max=50"}
+{"@timestamp":"2026-04-07T14:32:06.100Z","level":"WARN","service":"persistence-service","component":"DetectionWriter","message":"Retrying detection write for track_id=t-3042, attempt=2/3"}
+{"@timestamp":"2026-04-07T14:32:06.350Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Failed to write detection record: ConnectionError: connection to database at 10.0.3.12:5432 refused"}
+{"@timestamp":"2026-04-07T14:32:06.600Z","level":"WARN","service":"persistence-service","component":"DetectionWriter","message":"Retrying detection write for track_id=t-3042, attempt=3/3"}
+{"@timestamp":"2026-04-07T14:32:06.850Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Failed to write detection record: ConnectionError: connection to database at 10.0.3.12:5432 refused"}
+{"@timestamp":"2026-04-07T14:32:06.855Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Detection write permanently failed after 3 attempts for track_id=t-3042. Event dropped."}
+{"@timestamp":"2026-04-07T14:32:07.000Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"Detection cycle started, frame_id=88402, camera=cam-front-lobby"}
+{"@timestamp":"2026-04-07T14:32:07.210Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"Person detected: confidence=0.89, bbox=[425,185,685,525], frame_id=88402"}
+{"@timestamp":"2026-04-07T14:32:07.215Z","level":"INFO","service":"detection-service","component":"OpenCVTracker","message":"Tracker updated track_id=t-3042, frame_id=88402, displacement=5px"}
+{"@timestamp":"2026-04-07T14:32:07.220Z","level":"INFO","service":"persistence-service","component":"DetectionWriter","message":"Persisting detection event: track_id=t-3042, type=person, camera=cam-front-lobby"}
+{"@timestamp":"2026-04-07T14:32:07.480Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Failed to write detection record: ConnectionError: connection to database at 10.0.3.12:5432 refused"}
+{"@timestamp":"2026-04-07T14:32:07.485Z","level":"ERROR","service":"persistence-service","component":"DatabasePool","message":"PostgreSQL pool exhausted: active=50, idle=0, waiting=28, max=50"}
+{"@timestamp":"2026-04-07T14:32:08.000Z","level":"WARN","service":"persistence-service","component":"AlertManager","message":"Database connectivity alert triggered: 6 failed writes in last 5 seconds"}
+{"@timestamp":"2026-04-07T14:32:08.500Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"Detection cycle started, frame_id=88403, camera=cam-front-lobby"}
+{"@timestamp":"2026-04-07T14:32:08.700Z","level":"INFO","service":"detection-service","component":"YoloDetector","message":"No detections above threshold for frame_id=88403"}
+{"@timestamp":"2026-04-07T14:32:09.000Z","level":"INFO","service":"detection-service","component":"HealthCheck","message":"Detection pipeline healthy: model_latency_ms=210, queue_depth=0, gpu_utilization=42%"}
+{"@timestamp":"2026-04-07T14:32:10.000Z","level":"ERROR","service":"persistence-service","component":"DatabasePool","message":"PostgreSQL pool exhausted: active=50, idle=0, waiting=31, max=50"}
+{"@timestamp":"2026-04-07T14:32:10.500Z","level":"ERROR","service":"persistence-service","component":"DetectionWriter","message":"Circuit breaker OPEN for database writes. Dropping events until pool recovers."}

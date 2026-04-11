@@ -5,3 +5,5 @@ dist/
 ARCHITECTURE.md
 PRODUCT_SPEC.md
 TESTING.md
+CLAUDE.md
+validation/sandbox/elastic-stack/.env

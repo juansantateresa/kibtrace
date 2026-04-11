@@ -1,19 +1,41 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-import type { Hypothesis, InvestigationInput, ReducedEvidence, RepoCorrelation } from "../types.js";
+import type {
+  FetchManifest,
+  Hypothesis,
+  InvestigationInput,
+  ReducedEvidence,
+  RepoCorrelation,
+  SourceMode
+} from "../types.js";
+
+export const SESSION_SCHEMA_VERSION = "0.3.0" as const;
 
 export interface SessionArtifact {
-  schemaVersion: "0.1.0";
+  schemaVersion: typeof SESSION_SCHEMA_VERSION;
   sessionId: string;
   createdAt: string;
+  /** Updated whenever prepare/correlate runs and modifies session state. */
+  updatedAt: string;
+  sourceMode: SourceMode;
   input: InvestigationInput;
-  evidence: ReducedEvidence;
-  correlation: RepoCorrelation;
-  hypotheses: Hypothesis[];
+  /** Present when sourceMode === "elastic". */
+  fetch?: FetchManifest;
+  /** Present after prepare runs. */
+  evidence?: ReducedEvidence;
+  /** Present after prepare runs. */
+  correlation?: RepoCorrelation;
+  /** Present after prepare runs. */
+  hypotheses?: Hypothesis[];
   artifacts: {
     sessionPath: string;
-    reportJsonPath: string;
-    reportMarkdownPath: string;
+    /** Directory holding raw fetched pages (elastic mode only). */
+    rawHitsDir?: string;
+    /** Path to normalized events JSON (after prepare). */
+    normalizedEventsPath?: string;
+    /** Report files (after prepare). */
+    reportJsonPath?: string;
+    reportMarkdownPath?: string;
   };
 }
 
@@ -28,4 +50,3 @@ export async function loadSessionArtifact(inputPath: string): Promise<SessionArt
   const raw = await readFile(inputPath, "utf8");
   return JSON.parse(raw) as SessionArtifact;
 }
-
