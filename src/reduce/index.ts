@@ -1,10 +1,10 @@
-import type { ClusterSummary, NormalizedEvent, ReducedEvidence } from "../types.js";
+import type { ClusterSummary, NormalizedEvent } from "../types.js";
 
 /**
  * Fingerprint a log message by stripping variable parts:
  * UUIDs, hex strings, numbers, IPs, timestamps, quoted strings.
  */
-function fingerprint(message: string): string {
+export function fingerprint(message: string): string {
   return message
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<UUID>")
     .replace(/\b0x[0-9a-f]+\b/gi, "<HEX>")
@@ -22,7 +22,12 @@ function fingerprint(message: string): string {
 const MAX_EXCERPTS = 3;
 const MAX_SAMPLE_IDS = 3;
 
-function buildClusters(events: NormalizedEvent[]): ClusterSummary[] {
+/**
+ * Group normalized events into ClusterSummaries by fingerprint.
+ * This is the lower-level building block — call extractEvidence() on top of
+ * this to derive ranked evidence items.
+ */
+export function buildClusters(events: NormalizedEvent[]): ClusterSummary[] {
   if (events.length === 0) return [];
 
   const groups = new Map<string, NormalizedEvent[]>();
@@ -77,21 +82,4 @@ function buildClusters(events: NormalizedEvent[]): ClusterSummary[] {
       sampleEventIds
     };
   });
-}
-
-export interface ReduceSourceInfo {
-  discoveredArtifacts: string[];
-  totalBytes: number;
-}
-
-export function reduceEvidence(
-  source: ReduceSourceInfo,
-  normalizedEvents: NormalizedEvent[]
-): ReducedEvidence {
-  return {
-    discoveredArtifacts: source.discoveredArtifacts,
-    totalBytes: source.totalBytes,
-    normalizedEvents: normalizedEvents.length,
-    clusters: buildClusters(normalizedEvents)
-  };
 }

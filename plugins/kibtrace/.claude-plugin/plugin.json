@@ -1,0 +1,8 @@
+{
+  "name": "kibtrace",
+  "description": "Claude Code integration for kibtrace incident investigation workflows",
+  "version": "0.1.0",
+  "author": {
+    "name": "Juan Santa Teresa"
+  }
+}
