@@ -61,11 +61,27 @@ export function buildQuery(config: FetchConfig): Record<string, unknown> {
   }
 
   if (config.service) {
-    filters.push({ term: { "service.name": config.service } });
+    filters.push({
+      bool: {
+        should: [
+          { term: { "service.name": config.service } },
+          { term: { "service.name.keyword": config.service } }
+        ],
+        minimum_should_match: 1
+      }
+    });
   }
 
   if (config.environment) {
-    filters.push({ term: { "service.environment": config.environment } });
+    filters.push({
+      bool: {
+        should: [
+          { term: { "service.environment": config.environment } },
+          { term: { "service.environment.keyword": config.environment } }
+        ],
+        minimum_should_match: 1
+      }
+    });
   }
 
   if (filters.length === 0) {

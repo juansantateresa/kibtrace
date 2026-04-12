@@ -7,3 +7,4 @@ PRODUCT_SPEC.md
 TESTING.md
 CLAUDE.md
 validation/sandbox/elastic-stack/.env
+validation/sandbox/start-local-ingest/.env

@@ -1,0 +1,32 @@
+filebeat.inputs:
+  - type: filestream
+    id: kibtrace-sl-cv-db-failure-app
+    enabled: true
+    paths:
+      - /var/log/kibtrace/*.ndjson
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+    prospector.scanner.fingerprint.length: 64
+
+processors:
+  - add_tags:
+      tags:
+        - kibtrace
+        - start-local
+        - cv-db-failure-app
+  - add_fields:
+      target: labels
+      fields:
+        kibtrace_start_local: "true"
+
+setup.ilm.enabled: false
+setup.template.enabled: true
+setup.template.name: ${ELASTICSEARCH_INDEX_PREFIX}
+setup.template.pattern: ${ELASTICSEARCH_INDEX_PREFIX}-*
+
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_HOST}"]
+  api_key: "${ELASTICSEARCH_API_KEY}"
+  index: "${ELASTICSEARCH_INDEX_PREFIX}-%{+yyyy.MM.dd}"
