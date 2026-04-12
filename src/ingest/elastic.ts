@@ -1,9 +1,33 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { Agent as HttpsAgent } from "node:https";
 import path from "node:path";
 
-import type { ElasticHit, FetchConfig, FetchManifest } from "../types.js";
+import type { AuthMode, ElasticHit, FetchConfig, FetchManifest } from "../types.js";
 
 const PIT_KEEP_ALIVE = "1m";
+
+/** Resolve the Authorization header from FetchConfig. Never logs secrets. */
+export function resolveAuth(config: FetchConfig): { authHeader?: string; authMode: AuthMode } {
+  if (config.apiKey) {
+    return { authHeader: `ApiKey ${config.apiKey}`, authMode: "api-key" };
+  }
+  if (config.username && config.password) {
+    const encoded = Buffer.from(`${config.username}:${config.password}`).toString("base64");
+    return { authHeader: `Basic ${encoded}`, authMode: "basic" };
+  }
+  return { authMode: "none" };
+}
+
+/** Build a custom HTTPS dispatcher when CA cert or --insecure is needed. */
+function buildHttpsAgent(config: FetchConfig, caCert?: Buffer): HttpsAgent | undefined {
+  const needsAgent = caCert || config.insecure;
+  if (!needsAgent) return undefined;
+
+  return new HttpsAgent({
+    ca: caCert,
+    rejectUnauthorized: !config.insecure
+  });
+}
 
 interface FetchHttpOptions {
   esUrl: string;
@@ -12,6 +36,7 @@ interface FetchHttpOptions {
   method?: "GET" | "POST" | "DELETE";
   pathname: string;
   query?: Record<string, string>;
+  agent?: HttpsAgent;
 }
 
 /** Internal HTTP helper. Never logs the auth header. */
@@ -31,12 +56,16 @@ async function callEs<T>(opts: FetchHttpOptions): Promise<T> {
     headers["Authorization"] = opts.authHeader;
   }
 
-  const init: RequestInit = {
+  const init: RequestInit & { dispatcher?: unknown } = {
     method: opts.method ?? "POST",
     headers
   };
   if (opts.body !== undefined) {
     init.body = JSON.stringify(opts.body);
+  }
+  // Node 22's undici-backed fetch accepts a dispatcher for custom TLS.
+  if (opts.agent) {
+    init.dispatcher = opts.agent;
   }
 
   const response = await fetch(url, init);
@@ -104,10 +133,11 @@ interface SearchResponse {
 }
 
 /** Open a Point-In-Time. Returns the PIT id. */
-async function openPit(esUrl: string, indexPattern: string, authHeader?: string): Promise<string> {
+async function openPit(esUrl: string, indexPattern: string, authHeader?: string, agent?: HttpsAgent): Promise<string> {
   const response = await callEs<OpenPitResponse>({
     esUrl,
     authHeader,
+    agent,
     method: "POST",
     pathname: `/${encodeURIComponent(indexPattern)}/_pit`,
     query: { keep_alive: PIT_KEEP_ALIVE }
@@ -116,11 +146,12 @@ async function openPit(esUrl: string, indexPattern: string, authHeader?: string)
 }
 
 /** Close a PIT. Best-effort — failures are ignored. */
-async function closePit(esUrl: string, pitId: string, authHeader?: string): Promise<void> {
+async function closePit(esUrl: string, pitId: string, authHeader?: string, agent?: HttpsAgent): Promise<void> {
   try {
     await callEs({
       esUrl,
       authHeader,
+      agent,
       method: "DELETE",
       pathname: "/_pit",
       body: { id: pitId }
@@ -146,7 +177,11 @@ export async function fetchFromElastic(
 ): Promise<FetchResult> {
   await mkdir(rawHitsDir, { recursive: true });
 
-  const authHeader = config.apiKey ? `ApiKey ${config.apiKey}` : undefined;
+  const { authHeader, authMode } = resolveAuth(config);
+  const caCert = config.caCertPath
+    ? await readFile(config.caCertPath)
+    : undefined;
+  const agent = buildHttpsAgent(config, caCert);
   const query = buildQuery(config);
   const pageFiles: string[] = [];
   const pageFilePaths: string[] = [];
@@ -154,7 +189,7 @@ export async function fetchFromElastic(
   let totalHits: number | null = null;
   let pageCount = 0;
 
-  let currentPitId = await openPit(config.esUrl, config.indexPattern, authHeader);
+  let currentPitId = await openPit(config.esUrl, config.indexPattern, authHeader, agent);
 
   try {
     let searchAfter: unknown[] | undefined;
@@ -177,6 +212,7 @@ export async function fetchFromElastic(
       const response = await callEs<SearchResponse>({
         esUrl: config.esUrl,
         authHeader,
+        agent,
         method: "POST",
         pathname: "/_search",
         body
@@ -209,7 +245,7 @@ export async function fetchFromElastic(
       if (hits.length < size) break;
     }
   } finally {
-    await closePit(config.esUrl, currentPitId, authHeader);
+    await closePit(config.esUrl, currentPitId, authHeader, agent);
   }
 
   const manifest: FetchManifest = {
@@ -224,7 +260,7 @@ export async function fetchFromElastic(
     fetchedHits,
     totalHits,
     fetchedAt: new Date().toISOString(),
-    authMode: config.apiKey ? "api-key" : "none",
+    authMode,
     query,
     pageFiles
   };

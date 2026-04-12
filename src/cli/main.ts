@@ -53,15 +53,15 @@ import {
 } from "./format.js";
 import { resolveRequiredSession } from "./session-resolve.js";
 
-type CommandName = "fetch" | "prepare" | "inspect" | "correlate" | "report" | "query";
+type CommandName = "fetch" | "prepare" | "inspect" | "correlate" | "report" | "query" | "pack" | "evidence" | "code-origin";
 
 interface ParsedCommand {
   name: CommandName | "help";
   flags: Record<string, string>;
 }
 
-const COMMANDS: CommandName[] = ["fetch", "prepare", "inspect", "correlate", "report", "query"];
-const BOOLEAN_FLAGS = new Set(["human", "no-color", "help", "latest"]);
+const COMMANDS: CommandName[] = ["fetch", "prepare", "inspect", "correlate", "report", "query", "pack", "evidence", "code-origin"];
+const BOOLEAN_FLAGS = new Set(["human", "no-color", "help", "latest", "insecure"]);
 
 // ---------- arg parsing ----------
 
@@ -151,12 +151,15 @@ function handleHelp(flags: Record<string, string>): void {
     "  kibtrace <command> [flags]",
     "",
     p.dim("COMMANDS"),
-    `  ${p.cyan("fetch")}      fetch logs from Elasticsearch / OpenSearch`,
-    `  ${p.cyan("prepare")}    normalize, cluster, extract evidence, correlate code`,
-    `  ${p.cyan("query")}      focused evidence slices for Claude`,
-    `  ${p.cyan("inspect")}    summary of a session`,
-    `  ${p.cyan("correlate")}  show top code candidates and hypotheses`,
-    `  ${p.cyan("report")}     print the markdown report`,
+    `  ${p.cyan("fetch")}         fetch logs from Elasticsearch / OpenSearch`,
+    `  ${p.cyan("prepare")}      normalize, cluster, extract evidence, correlate code`,
+    `  ${p.cyan("pack")}         compact context pack for Claude (preferred)`,
+    `  ${p.cyan("evidence")}     inspect one evidence item in detail`,
+    `  ${p.cyan("code-origin")}  likely code origin for the incident`,
+    `  ${p.cyan("query")}        focused evidence slices (low-level)`,
+    `  ${p.cyan("inspect")}      summary of a session`,
+    `  ${p.cyan("correlate")}    show top code candidates and hypotheses`,
+    `  ${p.cyan("report")}       print the markdown report`,
     "",
     p.dim("QUERY VIEWS"),
     `  ${p.cyan("incident-summary")}   compact one-call summary for Claude`,
@@ -178,9 +181,17 @@ function handleHelp(flags: Record<string, string>): void {
     `  --human       human-readable output (default is JSON)`,
     `  --no-color    disable ANSI colors`,
     "",
-    p.dim("AUTH"),
+    p.dim("AUTH (precedence: api-key > basic > none)"),
     `  --api-key <key>     or env KIBTRACE_ES_API_KEY`,
+    `  --username <user>   or env KIBTRACE_ES_USERNAME`,
+    `  --password <pass>   or env KIBTRACE_ES_PASSWORD`,
     `                      no auth needed for the local sandbox`,
+    "",
+    p.dim("TLS"),
+    `  --ca-cert <path>    PEM CA certificate for self-signed HTTPS clusters`,
+    `                      or env KIBTRACE_ES_CA_CERT`,
+    `  --insecure          disable TLS certificate verification (dev only)`,
+    `                      or env KIBTRACE_ES_INSECURE=1`,
     "",
     p.dim("EXAMPLE"),
     `  kibtrace fetch --human \\`,
@@ -209,11 +220,20 @@ async function handleFetch(flags: Record<string, string>, output: OutputOptions)
   const service = flags.service;
   const environment = flags.env;
   const apiKey = flags["api-key"] ?? process.env.KIBTRACE_ES_API_KEY;
+  const username = flags.username ?? process.env.KIBTRACE_ES_USERNAME;
+  const password = flags.password ?? process.env.KIBTRACE_ES_PASSWORD;
+  const caCertPath = flags["ca-cert"] ?? process.env.KIBTRACE_ES_CA_CERT;
+  const insecure = flags.insecure === "true" || process.env.KIBTRACE_ES_INSECURE === "1";
   const maxHits = flags["max-hits"] ? Number.parseInt(flags["max-hits"], 10) : 50000;
   const pageSize = 1000;
 
   if (Number.isNaN(maxHits) || maxHits <= 0) {
     throw new Error("--max-hits must be a positive integer");
+  }
+
+  // Validate basic auth: both or neither.
+  if ((username && !password) || (!username && password)) {
+    throw new Error("--username and --password must both be provided for basic auth");
   }
 
   const outDir = createSessionDir(flags.out);
@@ -229,7 +249,11 @@ async function handleFetch(flags: Record<string, string>, output: OutputOptions)
     environment,
     pageSize,
     maxHits,
-    apiKey
+    apiKey,
+    username,
+    password,
+    caCertPath,
+    insecure
   };
 
   const { manifest } = await fetchFromElastic(config, rawHitsDir);
@@ -1166,6 +1190,255 @@ async function handleReport(flags: Record<string, string>, _output: OutputOption
   console.log(markdown);
 }
 
+// ---------- pack ----------
+
+async function handlePack(flags: Record<string, string>, output: OutputOptions): Promise<void> {
+  const ref = await resolveRequiredSession(process.cwd(), flags);
+  const session = await loadSessionArtifact(ref.sessionPath);
+
+  if (!session.evidence || !session.hypotheses) {
+    throw new Error("Session has no evidence. Run `kibtrace prepare` first.");
+  }
+
+  const evidence = session.evidence;
+  const topItems = evidence.items.slice(0, 3);
+  const topHypothesis = session.hypotheses[0];
+
+  // Collect trace IDs from top evidence for a representative trace
+  const traceIds = new Set<string>();
+  for (const item of topItems) {
+    for (const t of item.relatedTraceIds ?? []) traceIds.add(t);
+  }
+
+  // Build a compact supporting trace from the first available trace
+  let supportingTrace: unknown = null;
+  const firstTraceId = [...traceIds][0];
+  if (firstTraceId && session.artifacts.normalizedEventsPath) {
+    try {
+      const raw = await readFile(session.artifacts.normalizedEventsPath, "utf8");
+      const events = JSON.parse(raw) as Array<{
+        id: string; timestamp?: string; level?: string; message: string;
+        traceId?: string; service?: string; stackTrace?: string[];
+      }>;
+      const traceEvents = events
+        .filter((e) => e.traceId === firstTraceId)
+        .sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
+      if (traceEvents.length > 0) {
+        supportingTrace = {
+          traceId: firstTraceId,
+          eventCount: traceEvents.length,
+          timeline: traceEvents.map((e) => ({
+            timestamp: e.timestamp,
+            level: e.level,
+            message: e.message,
+            hasStack: (e.stackTrace?.length ?? 0) > 0
+          }))
+        };
+      }
+    } catch {
+      // Trace loading is best-effort
+    }
+  }
+
+  // Collect citations from top evidence
+  const citations = topItems.flatMap((item) =>
+    item.citations.slice(0, 3).map((c) => ({
+      eventId: c.eventId,
+      timestamp: c.timestamp,
+      traceId: c.traceId,
+      evidenceId: item.id
+    }))
+  ).slice(0, 10);
+
+  // Derive uncertainty from counter-evidence in hypotheses (deduplicated)
+  const uncertaintySet = new Set<string>();
+  for (const h of session.hypotheses.slice(0, 3)) {
+    for (const ce of h.counterEvidence) {
+      uncertaintySet.add(ce);
+    }
+  }
+  if (uncertaintySet.size === 0) {
+    uncertaintySet.add("no significant counter-evidence identified");
+  }
+  const uncertainty = [...uncertaintySet];
+
+  const pack = {
+    incident: {
+      summary: topHypothesis?.summary ?? topItems[0]?.title ?? "(no evidence)",
+      confidence: topHypothesis?.confidence ?? "low"
+    },
+    topEvidence: topItems.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      title: item.title,
+      summary: item.summary,
+      score: item.score,
+      severity: item.severity,
+      signals: item.signals,
+      stackFrames: item.stackFrames?.slice(0, 6),
+      relatedTraceIds: item.relatedTraceIds?.slice(0, 3) ?? [],
+      codeCandidates: item.codeCandidates?.slice(0, 2)
+    })),
+    topCodeCandidates: evidence.topCodeCandidates.slice(0, 5),
+    supportingTrace,
+    citations,
+    uncertainty
+  };
+
+  if (output.mode === "machine") {
+    console.log(JSON.stringify({
+      ok: true,
+      command: "pack",
+      sessionId: session.sessionId,
+      result: pack
+    }, null, 2));
+    return;
+  }
+
+  const p = makePalette(output.color);
+  emit([
+    title(p, "pack"),
+    "",
+    kv(p, "incident", pack.incident.summary),
+    kv(p, "confidence", pack.incident.confidence),
+    ""
+  ]);
+
+  if (pack.topEvidence.length > 0) {
+    emit([p.dim("  TOP EVIDENCE")]);
+    for (const item of pack.topEvidence) {
+      const sev = severityColor(p, item.severity as "high" | "medium" | "low");
+      console.log(`    ${visualPad(sev, 8)}  ${visualPadStart(String(item.score), 5)}  ${p.cyan(item.id)}`);
+      console.log(`             ${item.title}`);
+    }
+    console.log("");
+  }
+
+  if (pack.topCodeCandidates.length > 0) {
+    emit([p.dim("  CODE ORIGIN")]);
+    for (const c of pack.topCodeCandidates.slice(0, 3)) {
+      const loc = c.line !== undefined ? `:${c.line}` : "";
+      console.log(`    ${visualPadStart(String(c.score), 5)}  ${p.cyan(c.path)}${p.dim(loc)}  ${c.symbol ?? ""}`);
+    }
+    console.log("");
+  }
+
+  if (supportingTrace) {
+    const t = supportingTrace as { traceId: string; timeline: Array<{ level?: string; message: string }> };
+    emit([p.dim(`  TRACE  ${t.traceId}`)]);
+    for (const step of t.timeline) {
+      const lvl = step.level ? colorLevel(p, step.level) : p.dim("---");
+      console.log(`    ${visualPad(lvl, 7)}  ${step.message}`);
+    }
+    console.log("");
+  }
+
+  if (uncertainty.length > 0) {
+    emit([p.dim("  UNCERTAINTY")]);
+    for (const u of uncertainty) {
+      console.log(`    ${p.dim("•")} ${u}`);
+    }
+    console.log("");
+  }
+}
+
+// ---------- evidence (top-level) ----------
+
+async function handleEvidence(flags: Record<string, string>, output: OutputOptions): Promise<void> {
+  const ref = await resolveRequiredSession(process.cwd(), flags);
+  const session = await loadSessionArtifact(ref.sessionPath);
+
+  if (!session.evidence) {
+    throw new Error("Session has no evidence. Run `kibtrace prepare` first.");
+  }
+
+  const evidenceId = flags.id;
+  if (!evidenceId) {
+    throw new Error("--id <evidence-id> is required");
+  }
+
+  const found = session.evidence.items.find((it) => it.id === evidenceId);
+  if (!found) {
+    throw new Error(`evidence not found: ${evidenceId}`);
+  }
+
+  if (output.mode === "machine") {
+    console.log(JSON.stringify({
+      ok: true,
+      command: "evidence",
+      sessionId: session.sessionId,
+      result: found
+    }, null, 2));
+    return;
+  }
+
+  const p = makePalette(output.color);
+  renderEvidenceDetailHuman(p, found);
+}
+
+// ---------- code-origin ----------
+
+async function handleCodeOrigin(flags: Record<string, string>, output: OutputOptions): Promise<void> {
+  const ref = await resolveRequiredSession(process.cwd(), flags);
+  const session = await loadSessionArtifact(ref.sessionPath);
+
+  if (!session.evidence) {
+    throw new Error("Session has no evidence. Run `kibtrace prepare` first.");
+  }
+
+  // If --evidence-id is given, scope to that item's candidates
+  const evidenceId = flags["evidence-id"];
+  let candidates = session.evidence.topCodeCandidates;
+  let summary: string;
+
+  if (evidenceId) {
+    const item = session.evidence.items.find((it) => it.id === evidenceId);
+    if (!item) {
+      throw new Error(`evidence not found: ${evidenceId}`);
+    }
+    candidates = item.codeCandidates ?? [];
+    const topItem = candidates[0];
+    summary = topItem
+      ? `Most likely failing code path for ${item.title}: ${topItem.symbol ?? topItem.path}`
+      : `No code candidates for ${evidenceId}`;
+  } else {
+    const topGlobal = candidates[0];
+    summary = topGlobal
+      ? `Most likely failing code path is ${topGlobal.symbol ?? topGlobal.path} in ${topGlobal.path}`
+      : "No code candidates identified";
+  }
+
+  if (output.mode === "machine") {
+    console.log(JSON.stringify({
+      ok: true,
+      command: "code-origin",
+      sessionId: session.sessionId,
+      result: {
+        summary,
+        candidates
+      }
+    }, null, 2));
+    return;
+  }
+
+  const p = makePalette(output.color);
+  emit([
+    title(p, "code-origin"),
+    "",
+    kv(p, "summary", summary),
+    ""
+  ]);
+
+  if (candidates.length > 0) {
+    for (const c of candidates) {
+      const loc = c.line !== undefined ? `:${c.line}` : "";
+      console.log(`  ${visualPadStart(String(c.score), 5)}  ${p.cyan(c.path)}${p.dim(loc)}`);
+      console.log(`         ${p.dim(c.reason)}`);
+    }
+    console.log("");
+  }
+}
+
 // ---------- main ----------
 
 async function main(): Promise<void> {
@@ -1213,6 +1486,15 @@ async function main(): Promise<void> {
         break;
       case "report":
         await handleReport(parsed.flags, output);
+        break;
+      case "pack":
+        await handlePack(parsed.flags, output);
+        break;
+      case "evidence":
+        await handleEvidence(parsed.flags, output);
+        break;
+      case "code-origin":
+        await handleCodeOrigin(parsed.flags, output);
         break;
     }
   } catch (error) {

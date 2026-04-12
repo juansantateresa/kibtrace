@@ -19,7 +19,7 @@ export interface InvestigationInput {
 
 // ---------- Elastic fetch ----------
 
-export type AuthMode = "none" | "api-key";
+export type AuthMode = "none" | "api-key" | "basic";
 
 export interface FetchConfig {
   esUrl: string;
@@ -30,8 +30,16 @@ export interface FetchConfig {
   environment?: string;
   pageSize: number;
   maxHits: number;
-  /** Auth key — never persisted, never logged. */
+  /** API key — never persisted, never logged. */
   apiKey?: string;
+  /** Basic auth username — never persisted. */
+  username?: string;
+  /** Basic auth password — never persisted, never logged. */
+  password?: string;
+  /** Path to a PEM CA certificate for self-signed HTTPS clusters. */
+  caCertPath?: string;
+  /** Disable TLS certificate verification (dev/testing only). */
+  insecure?: boolean;
 }
 
 export interface FetchManifest {
