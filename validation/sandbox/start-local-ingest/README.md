@@ -1,8 +1,9 @@
 # start-local Authenticated Ingest Scaffold
 
 Validation scaffold that ships fake app logs into an external,
-authenticated Elastic start-local instance. This is **not** production
-runtime code.
+authenticated Elastic start-local instance via Filebeat. This is
+**not** production runtime code — it exists only to validate the
+authenticated ingest path end-to-end.
 
 ## Prerequisites
 
