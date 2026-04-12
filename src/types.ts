@@ -91,7 +91,7 @@ export interface NormalizedEvent {
   raw: string;
 }
 
-// ---------- Reduced evidence ----------
+// ---------- Clusters (debug-level abstraction, kept for drilldown) ----------
 
 export interface ClusterSummary {
   id: string;
@@ -114,6 +114,60 @@ export interface CodeReference {
   line?: number;
 }
 
+// ---------- Evidence model (signal-level abstraction, primary product output) ----------
+
+export type EvidenceKind =
+  | "error-cluster"
+  | "trace-timeline"
+  | "stack-group"
+  | "retry-chain"
+  | "code-candidate";
+
+export type EvidenceSeverity = "low" | "medium" | "high";
+
+export interface EvidenceCitation {
+  eventId: string;
+  sourceFile: string;
+  timestamp?: string;
+  traceId?: string;
+}
+
+export interface CodeCandidate {
+  path: string;
+  line?: number;
+  score: number;
+  reason: string;
+  symbol?: string;
+}
+
+export interface EvidenceItem {
+  id: string;
+  kind: EvidenceKind;
+  title: string;
+  summary: string;
+  score: number;
+  severity: EvidenceSeverity;
+  signals: string[];
+  citations: EvidenceCitation[];
+  relatedClusterIds?: string[];
+  relatedTraceIds?: string[];
+  stackFrames?: string[];
+  codeCandidates?: CodeCandidate[];
+}
+
+export interface PreparedEvidence {
+  /** Source artifact paths (log files for file mode, raw page files for elastic mode). */
+  discoveredArtifacts: string[];
+  totalBytes: number;
+  normalizedEvents: number;
+  /** Low-level cluster data — kept for debug/drilldown. */
+  clusters: ClusterSummary[];
+  /** Ranked evidence items — the primary product abstraction. */
+  items: EvidenceItem[];
+  /** Top-ranked code candidates across all evidence. */
+  topCodeCandidates: CodeCandidate[];
+}
+
 export interface Hypothesis {
   id: string;
   summary: string;
@@ -122,20 +176,8 @@ export interface Hypothesis {
   counterEvidence: string[];
   suggestedOwners: string[];
   probableCodeAreas: CodeReference[];
-}
-
-export interface ReducedEvidence {
-  /** Source artifact paths (log files for file mode, raw page files for elastic mode). */
-  discoveredArtifacts: string[];
-  totalBytes: number;
-  normalizedEvents: number;
-  clusters: ClusterSummary[];
-}
-
-export interface RepoCorrelation {
-  repoPath: string;
-  probableCodeAreas: CodeReference[];
-  suggestedOwners: string[];
+  /** Evidence item IDs that back this hypothesis. */
+  backedByEvidenceIds?: string[];
 }
 
 // ---------- Query views ----------
@@ -145,7 +187,11 @@ export type QueryViewName =
   | "cluster"
   | "latest-errors"
   | "service"
-  | "trace";
+  | "trace"
+  | "incident-summary"
+  | "top-evidence"
+  | "evidence"
+  | "code-candidates";
 
 export interface QueryResult {
   view: QueryViewName;

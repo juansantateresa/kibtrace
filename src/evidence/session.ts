@@ -4,28 +4,28 @@ import type {
   FetchManifest,
   Hypothesis,
   InvestigationInput,
-  ReducedEvidence,
-  RepoCorrelation,
+  PreparedEvidence,
   SourceMode
 } from "../types.js";
 
-export const SESSION_SCHEMA_VERSION = "0.3.0" as const;
+export const SESSION_SCHEMA_VERSION = "0.4.0" as const;
+
+/** Schema versions this binary can load. */
+const SUPPORTED_SCHEMA_VERSIONS = new Set<string>([SESSION_SCHEMA_VERSION]);
 
 export interface SessionArtifact {
   schemaVersion: typeof SESSION_SCHEMA_VERSION;
   sessionId: string;
   createdAt: string;
-  /** Updated whenever prepare/correlate runs and modifies session state. */
+  /** Updated whenever prepare runs and modifies session state. */
   updatedAt: string;
   sourceMode: SourceMode;
   input: InvestigationInput;
   /** Present when sourceMode === "elastic". */
   fetch?: FetchManifest;
-  /** Present after prepare runs. */
-  evidence?: ReducedEvidence;
-  /** Present after prepare runs. */
-  correlation?: RepoCorrelation;
-  /** Present after prepare runs. */
+  /** Present after prepare runs — clusters + ranked evidence + top code candidates. */
+  evidence?: PreparedEvidence;
+  /** Present after prepare runs — derived from top evidence items. */
   hypotheses?: Hypothesis[];
   artifacts: {
     sessionPath: string;
@@ -48,5 +48,17 @@ export async function writeSessionArtifact(
 
 export async function loadSessionArtifact(inputPath: string): Promise<SessionArtifact> {
   const raw = await readFile(inputPath, "utf8");
-  return JSON.parse(raw) as SessionArtifact;
+  const parsed = JSON.parse(raw) as { schemaVersion?: string } & SessionArtifact;
+
+  const version = parsed.schemaVersion;
+  if (!version || !SUPPORTED_SCHEMA_VERSIONS.has(version)) {
+    const supported = [...SUPPORTED_SCHEMA_VERSIONS].join(", ");
+    throw new Error(
+      `Unsupported session schema version: ${version ?? "(missing)"}. ` +
+      `This kibtrace binary supports: ${supported}. ` +
+      `Re-run \`kibtrace fetch\` and \`kibtrace prepare\` to create a fresh session.`
+    );
+  }
+
+  return parsed;
 }

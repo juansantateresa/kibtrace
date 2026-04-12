@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kibtrace-sl-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  cv-db-failure-app:
+    build:
+      context: ../../seed-projects/cv-db-failure-app
+    container_name: kibtrace-sl-cv-db-failure-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LOG_FILE: /app/logs/cv-db-failure-app.ndjson
+      SERVICE_NAME: ${APP_SERVICE_NAME}
+      SERVICE_VERSION: ${APP_SERVICE_VERSION}
+      CAMERA_ID: ${APP_CAMERA_ID}
+      MODEL_VERSION: ${APP_MODEL_VERSION}
+      DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION}
+      FRAME_INTERVAL_MS: ${APP_FRAME_INTERVAL_MS}
+      INCIDENT_MODE: ${APP_INCIDENT_MODE}
+      LOG_LEVEL: ${APP_LOG_LEVEL}
+    volumes:
+      - app-logs:/app/logs
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${FILEBEAT_STACK_VERSION}
+    container_name: kibtrace-sl-filebeat
+    user: root
+    depends_on:
+      - cv-db-failure-app
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST}
+      ELASTICSEARCH_API_KEY: ${ELASTICSEARCH_API_KEY}
+      ELASTICSEARCH_INDEX_PREFIX: ${ELASTICSEARCH_INDEX_PREFIX}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - app-logs:/var/log/kibtrace:ro
+      - filebeat-data:/usr/share/filebeat/data
+
+volumes:
+  pg-data:
+  app-logs:
+  filebeat-data:
