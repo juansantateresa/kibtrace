@@ -1,0 +1,50 @@
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: false
+      templates:
+        - condition:
+            or:
+              - contains:
+                  docker.container.name: "kibtrace-vb-frame-ingestor"
+              - contains:
+                  docker.container.name: "kibtrace-vb-detector-worker"
+              - contains:
+                  docker.container.name: "kibtrace-vb-event-persistor-v1"
+              - contains:
+                  docker.container.name: "kibtrace-vb-event-persistor-v2"
+              - contains:
+                  docker.container.name: "kibtrace-vb-migration-runner"
+          config:
+            - type: filestream
+              id: "kibtrace-vb-${data.docker.container.id}"
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+              parsers:
+                - container:
+                    stream: stdout
+                    format: docker
+                - ndjson:
+                    target: ""
+                    overwrite_keys: true
+              prospector.scanner.fingerprint.length: 64
+
+processors:
+  - add_tags:
+      tags:
+        - kibtrace
+        - variant-b-rollout
+  - add_fields:
+      target: labels
+      fields:
+        kibtrace_variant_b: "true"
+
+setup.ilm.enabled: false
+setup.template.enabled: true
+setup.template.name: ${ELASTICSEARCH_INDEX_PREFIX}
+setup.template.pattern: ${ELASTICSEARCH_INDEX_PREFIX}-*
+
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_HOST}"]
+  api_key: "${ELASTICSEARCH_API_KEY}"
+  index: "${ELASTICSEARCH_INDEX_PREFIX}-%{+yyyy.MM.dd}"

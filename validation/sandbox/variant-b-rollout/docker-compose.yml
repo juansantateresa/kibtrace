@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kibtrace-vb-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-detections}
+      POSTGRES_USER: ${POSTGRES_USER:-kibtrace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kibtrace}
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kibtrace} -d ${POSTGRES_DB:-detections}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migration-runner:
+    build:
+      context: ../../seed-projects/cv-rollout-schema-drift
+    container_name: kibtrace-vb-migration-runner
+    command: ["node", "services/migration-runner/index.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kibtrace}:${POSTGRES_PASSWORD:-kibtrace}@postgres:5432/${POSTGRES_DB:-detections}
+      SERVICE_VERSION: "1.0.0"
+      SERVICE_ENVIRONMENT: ${SERVICE_ENVIRONMENT:-staging}
+      DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-deploy-2026-04-12-rollout-b}
+      MIGRATIONS_DIR: /app/migrations
+
+  event-persistor-v1:
+    build:
+      context: ../../seed-projects/cv-rollout-schema-drift
+    container_name: kibtrace-vb-event-persistor-v1
+    command: ["node", "services/event-persistor-v1/index.js"]
+    depends_on:
+      migration-runner:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kibtrace}:${POSTGRES_PASSWORD:-kibtrace}@postgres:5432/${POSTGRES_DB:-detections}
+      SERVICE_VERSION: v1
+      SERVICE_ENVIRONMENT: ${SERVICE_ENVIRONMENT:-staging}
+      DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-deploy-2026-04-12-rollout-b}
+      PORT: "3002"
+
+  event-persistor-v2:
+    build:
+      context: ../../seed-projects/cv-rollout-schema-drift
+    container_name: kibtrace-vb-event-persistor-v2
+    command: ["node", "services/event-persistor-v2/index.js"]
+    depends_on:
+      migration-runner:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kibtrace}:${POSTGRES_PASSWORD:-kibtrace}@postgres:5432/${POSTGRES_DB:-detections}
+      SERVICE_VERSION: v2
+      SERVICE_ENVIRONMENT: ${SERVICE_ENVIRONMENT:-staging}
+      DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-deploy-2026-04-12-rollout-b}
+      PORT: "3003"
+
+  detector-worker:
+    build:
+      context: ../../seed-projects/cv-rollout-schema-drift
+    container_name: kibtrace-vb-detector-worker
+    command: ["node", "services/detector-worker/index.js"]
+    depends_on:
+      - event-persistor-v1
+      - event-persistor-v2
+    environment:
+      SERVICE_VERSION: "1.0.0"
+      SERVICE_ENVIRONMENT: ${SERVICE_ENVIRONMENT:-staging}
+      DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-deploy-2026-04-12-rollout-b}
+      MODEL_VERSION: ${MODEL_VERSION:-yolo11n-2026.04}
+      V2_ROUTE_PERCENT: ${V2_ROUTE_PERCENT:-30}
+      PERSISTOR_V1_URL: http://event-persistor-v1:3002
+      PERSISTOR_V2_URL: http://event-persistor-v2:3003
+      PORT: "3001"
+
+  frame-ingestor:
+    build:
+      context: ../../seed-projects/cv-rollout-schema-drift
+    container_name: kibtrace-vb-frame-ingestor
+    command: ["node", "services/frame-ingestor/index.js"]
+    depends_on:
+      - detector-worker
+    environment:
+      SERVICE_VERSION: "1.0.0"
+      SERVICE_ENVIRONMENT: ${SERVICE_ENVIRONMENT:-staging}
+      DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION:-deploy-2026-04-12-rollout-b}
+      CAMERA_ID: ${CAMERA_ID:-camera-east-loading-bay}
+      DETECTOR_WORKER_URL: http://detector-worker:3001
+      FRAME_INTERVAL_MS: ${FRAME_INTERVAL_MS:-200}
+      TOTAL_FRAMES: ${TOTAL_FRAMES:-500}
+      PORT: "3000"
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${FILEBEAT_STACK_VERSION:-9.3.3}
+    container_name: kibtrace-vb-filebeat
+    user: root
+    depends_on:
+      - frame-ingestor
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-http://host.docker.internal:9200}
+      ELASTICSEARCH_API_KEY: ${ELASTICSEARCH_API_KEY}
+      ELASTICSEARCH_INDEX_PREFIX: ${ELASTICSEARCH_INDEX_PREFIX:-kibtrace-auth-variant-b}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - filebeat-data:/usr/share/filebeat/data
+
+volumes:
+  pg-data:
+  filebeat-data:

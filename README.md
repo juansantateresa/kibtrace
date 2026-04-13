@@ -214,6 +214,13 @@ This repo includes:
 - seed app code under [validation/seed-projects/cv-db-failure-app/](/Users/juansantateresagomez/kibanaskill/validation/seed-projects/cv-db-failure-app)
 - file fixtures under [validation/fixtures/logs/](/Users/juansantateresagomez/kibanaskill/validation/fixtures/logs)
 
+A multi-service rollout schema drift scenario is also available:
+
+- seed project: [validation/seed-projects/cv-rollout-schema-drift/](/Users/juansantateresagomez/kibanaskill/validation/seed-projects/cv-rollout-schema-drift)
+- sandbox: [validation/sandbox/variant-b-rollout/](/Users/juansantateresagomez/kibanaskill/validation/sandbox/variant-b-rollout)
+
+This scenario runs five services where a v2 persistor fails due to an unapplied migration, while v1 traffic succeeds. It validates that `kibtrace` correctly surfaces partial-failure rollout incidents.
+
 These are for validation and regression testing. They are not part of the published runtime surface.
 
 ## Current Limitations

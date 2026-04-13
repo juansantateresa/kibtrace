@@ -6,5 +6,13 @@ ARCHITECTURE.md
 PRODUCT_SPEC.md
 TESTING.md
 CLAUDE.md
+CLAUDE_CLI_CONTRACT.md
+RAG_SPEC.md
+REALISTIC_SCENARIO_SPEC.md
+VARIANT_B_CLAUDE_HANDOFF.md
+VARIANT_B_IMPLEMENTATION_PLAN.md
 validation/sandbox/elastic-stack/.env
 validation/sandbox/start-local-ingest/.env
+validation/sandbox/variant-b-rollout/.env
+validation/seed-projects/cv-rollout-schema-drift/.env
+AUTO_TRIAGE_SPEC.md
