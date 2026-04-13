@@ -18,11 +18,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest:variant-b": "npm run build",
+    "test:variant-b": "./scripts/test-variant-b",
+    "test:variant-b:down": "./scripts/test-variant-b down"
   },
   "devDependencies": {
     "@types/node": "^22",
     "typescript": "^5"
   }
 }
-

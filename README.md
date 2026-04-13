@@ -151,7 +151,7 @@ Notes:
 
 ## Local Validation
 
-There are two main validation paths in this repo.
+There are two validation paths in this repo, but only one should be treated as the canonical end-to-end test.
 
 ### Basic sandbox
 
@@ -175,6 +175,36 @@ This is the realistic test case for the actual product promise:
 - only `v2` persistence fails
 - rollout skew visible in logs
 - Claude must connect `kibtrace` evidence with repo code and migration context
+
+Canonical local test:
+
+```bash
+npm run test:variant-b
+```
+
+That single command:
+
+- builds `kibtrace`
+- hydrates the Variant B sandbox from your local `elastic-start-local` env
+- starts the sandbox containers
+- waits for logs to land in Elasticsearch
+- runs `fetch`
+- runs `prepare`
+- prints `pack`
+- prints `code-origin`
+- prints the exact Claude prompt to use next
+
+Teardown:
+
+```bash
+npm run test:variant-b:down
+```
+
+If your `elastic-start-local` installation is not under `~/elastic-start-local/.env`, set:
+
+```bash
+export KIBTRACE_START_LOCAL_ENV=/full/path/to/elastic-start-local/.env
+```
 
 ## Current CLI Surface
 

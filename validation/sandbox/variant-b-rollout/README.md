@@ -3,13 +3,32 @@
 Ships logs from the cv-rollout-schema-drift seed project to an external
 Elasticsearch instance via Filebeat.
 
+## Canonical path
+
+Run this from the repo root:
+
+```bash
+npm run test:variant-b
+```
+
+That is the canonical local test for this scenario. It builds `kibtrace`,
+hydrates this sandbox's `.env`, starts the containers, waits for logs,
+fetches the log slice, prepares the session, prints `pack`, prints
+`code-origin`, and gives you the next Claude prompt.
+
+Teardown:
+
+```bash
+npm run test:variant-b:down
+```
+
 ## Prerequisites
 
 - Docker and Docker Compose
 - A running Elasticsearch instance (e.g. from `elastic-start-local`)
 - An API key for Elasticsearch
 
-## Setup
+## Manual setup
 
 1. Copy `.env.example` to `.env` and fill in your Elasticsearch API key:
 
@@ -36,7 +55,7 @@ curl -s -H "Authorization: ApiKey $(echo -n 'YOUR_DECODED_ID:KEY' | base64)" \
   'http://127.0.0.1:9200/kibtrace-auth-variant-b-*/_count' | jq .
 ```
 
-## Running kibtrace
+## Manual kibtrace flow
 
 ```bash
 # Fetch logs
@@ -50,10 +69,12 @@ curl -s -H "Authorization: ApiKey $(echo -n 'YOUR_DECODED_ID:KEY' | base64)" \
 # Prepare session
 ./scripts/kibtrace prepare --latest --repo validation/seed-projects/cv-rollout-schema-drift
 
-# Investigate
-./scripts/kibtrace query --latest --view incident-summary
-./scripts/kibtrace query --latest --view evidence --id <top-evidence-id>
-./scripts/kibtrace query --latest --view code-candidates
+# Claude-facing summary
+./scripts/kibtrace pack --latest
+
+# Drill down if needed
+./scripts/kibtrace evidence --latest --id <top-evidence-id>
+./scripts/kibtrace code-origin --latest
 ```
 
 ## Teardown
