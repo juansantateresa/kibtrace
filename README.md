@@ -86,7 +86,7 @@ Open Claude Code in the same repo after you have prepared a session.
 
 If `kibtrace` is on your `PATH`, Claude can call it directly. If not, use `./scripts/kibtrace`.
 
-Recommended prompt:
+Prompt examples:
 
 ```text
 Investigate the latest kibtrace session.
@@ -104,10 +104,61 @@ Tell me:
 - any uncertainty
 ```
 
-If you want to pin Claude to a specific session instead of `--latest`, use:
-
 ```text
 Investigate kibtrace session <session-id>.
+
+Use kibtrace as the log-side source of truth.
+Start with:
+1. kibtrace pack --session-id <session-id>
+2. inspect the top evidence item if needed
+3. inspect code origin
+4. then inspect the relevant repo files
+
+Tell me:
+- the most likely incident
+- the most likely code origin
+- the evidence supporting it
+- any uncertainty
+```
+
+```text
+Investigate the latest kibtrace session and write a short team-ready incident report.
+
+Use kibtrace as the log-side source of truth. Start with:
+1. kibtrace pack --latest
+2. inspect the strongest evidence item
+3. inspect code origin
+4. inspect only the repo files needed to explain the failure
+
+Output:
+- summary
+- user impact
+- likely root cause
+- likely fix area
+- evidence
+- uncertainty
+```
+
+```text
+Investigate the latest kibtrace session and verify whether the incident is rollout-specific.
+
+Use kibtrace as the log-side source of truth. Start with:
+1. kibtrace pack --latest
+2. inspect the top evidence item
+3. inspect code origin
+4. compare the implicated code path with nearby versions, services, or migrations in the repo
+
+Tell me:
+- whether the issue is version-specific
+- whether there is a migration/schema mismatch
+- the exact code area most likely responsible
+- the evidence supporting that conclusion
+```
+
+Minimal prompt:
+
+```text
+Investigate the latest kibtrace session with kibtrace as the log-side source of truth.
 ```
 
 This repo also includes an optional Claude Code plugin scaffold under `plugins/kibtrace/`.
