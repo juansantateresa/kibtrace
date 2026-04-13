@@ -1,0 +1,234 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+SANDBOX_DIR="$REPO_ROOT/validation/sandbox/variant-b-rollout"
+SANDBOX_ENV="$SANDBOX_DIR/.env"
+SANDBOX_ENV_EXAMPLE="$SANDBOX_DIR/.env.example"
+SEED_REPO="$REPO_ROOT/validation/seed-projects/cv-rollout-schema-drift"
+START_LOCAL_ENV="${KIBTRACE_START_LOCAL_ENV:-$HOME/elastic-start-local/.env}"
+DIST_BIN="$REPO_ROOT/dist/cli/main.js"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/test-variant-b           Start Variant B, fetch logs, prepare evidence, and print the Claude-ready pack
+  ./scripts/test-variant-b down      Stop Variant B and remove its local volumes
+  ./scripts/test-variant-b --help
+
+Defaults:
+  - reads Elasticsearch credentials from $HOME/elastic-start-local/.env
+  - writes validation/sandbox/variant-b-rollout/.env locally if missing
+  - fetches the current UTC day from kibtrace-auth-variant-b-*
+
+Environment overrides:
+  KIBTRACE_START_LOCAL_ENV   path to elastic-start-local .env
+  KIBTRACE_VARIANT_B_SINCE   override fetch start ISO timestamp
+  KIBTRACE_VARIANT_B_UNTIL   override fetch end ISO timestamp
+  KIBTRACE_VARIANT_B_MAX_HITS override fetch max hits (default 1000)
+EOF
+}
+
+read_env_value() {
+  key="$1"
+  file="$2"
+  awk -F= -v key="$key" '
+    $1 == key {
+      value = substr($0, index($0, "=") + 1)
+      gsub(/^"/, "", value)
+      gsub(/"$/, "", value)
+      print value
+      exit
+    }
+  ' "$file"
+}
+
+write_env_value() {
+  file="$1"
+  key="$2"
+  value="$3"
+  tmp_file=$(mktemp)
+
+  awk -v key="$key" -v value="$value" '
+    BEGIN { replaced = 0 }
+    index($0, key "=") == 1 {
+      print key "=" value
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        print key "=" value
+      }
+    }
+  ' "$file" > "$tmp_file"
+
+  mv "$tmp_file" "$file"
+}
+
+resolve_local_es_url() {
+  raw_url="$1"
+  port="$2"
+
+  if [ -z "$raw_url" ] && [ -n "$port" ]; then
+    raw_url="http://localhost:$port"
+  fi
+
+  if [ -n "$port" ]; then
+    raw_url=$(printf '%s' "$raw_url" | sed "s|\${ES_LOCAL_PORT}|$port|g")
+  fi
+
+  printf '%s\n' "$raw_url"
+}
+
+to_docker_host_url() {
+  url="$1"
+
+  printf '%s\n' "$url" \
+    | sed 's#://localhost#://host.docker.internal#; s#://127\.0\.0\.1#://host.docker.internal#'
+}
+
+decode_base64() {
+  value="$1"
+  if printf '%s' "$value" | base64 -d >/dev/null 2>&1; then
+    printf '%s' "$value" | base64 -d
+  else
+    printf '%s' "$value" | base64 -D
+  fi
+}
+
+wait_for_docs() {
+  es_url="$1"
+  api_key="$2"
+  index_prefix="$3"
+
+  attempt=0
+  while [ "$attempt" -lt 30 ]; do
+    count=$(curl -s -H "Authorization: ApiKey $api_key" \
+      "${es_url%/}/${index_prefix}-*/_count" \
+      | sed -n 's/.*"count":[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+    count=${count:-0}
+    if [ "$count" -gt 0 ]; then
+      printf '%s\n' "$count"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+
+  return 1
+}
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "help" ]; then
+  usage
+  exit 0
+fi
+
+if [ "${1:-}" = "down" ]; then
+  cd "$SANDBOX_DIR"
+  exec docker compose down -v
+fi
+
+if [ ! -f "$DIST_BIN" ]; then
+  echo "kibtrace test runner: build the package first with 'npm run build'." >&2
+  exit 1
+fi
+
+if [ ! -f "$START_LOCAL_ENV" ]; then
+  echo "kibtrace test runner: expected Elastic start-local env at $START_LOCAL_ENV" >&2
+  echo "Set KIBTRACE_START_LOCAL_ENV if your start-local installation lives elsewhere." >&2
+  exit 1
+fi
+
+if [ ! -f "$SANDBOX_ENV" ]; then
+  cp "$SANDBOX_ENV_EXAMPLE" "$SANDBOX_ENV"
+fi
+
+ES_URL=$(read_env_value ES_LOCAL_URL "$START_LOCAL_ENV")
+ES_PORT=$(read_env_value ES_LOCAL_PORT "$START_LOCAL_ENV")
+ES_API_KEY_BASE64=$(read_env_value ES_LOCAL_API_KEY "$START_LOCAL_ENV")
+ES_API_KEY_DECODED=$(decode_base64 "$ES_API_KEY_BASE64")
+LOCAL_ES_URL=$(resolve_local_es_url "$ES_URL" "$ES_PORT")
+SANDBOX_ES_URL=$(to_docker_host_url "$LOCAL_ES_URL")
+
+if [ -z "$LOCAL_ES_URL" ] || [ -z "$SANDBOX_ES_URL" ] || [ -z "$ES_API_KEY_BASE64" ] || [ -z "$ES_API_KEY_DECODED" ]; then
+  echo "kibtrace test runner: could not read ES_LOCAL_URL / ES_LOCAL_PORT / ES_LOCAL_API_KEY from $START_LOCAL_ENV" >&2
+  exit 1
+fi
+
+write_env_value "$SANDBOX_ENV" ELASTICSEARCH_HOST "$SANDBOX_ES_URL"
+write_env_value "$SANDBOX_ENV" ELASTICSEARCH_API_KEY "$ES_API_KEY_DECODED"
+
+INDEX_PREFIX=$(read_env_value ELASTICSEARCH_INDEX_PREFIX "$SANDBOX_ENV")
+INDEX_PREFIX=${INDEX_PREFIX:-kibtrace-auth-variant-b}
+TODAY_UTC=$(date -u +%Y-%m-%d)
+SINCE="${KIBTRACE_VARIANT_B_SINCE:-${TODAY_UTC}T00:00:00Z}"
+UNTIL="${KIBTRACE_VARIANT_B_UNTIL:-${TODAY_UTC}T23:59:59Z}"
+MAX_HITS="${KIBTRACE_VARIANT_B_MAX_HITS:-1000}"
+
+echo "Starting Variant B sandbox..."
+(cd "$SANDBOX_DIR" && docker compose up --build -d)
+
+echo "Waiting for logs in ${INDEX_PREFIX}-* ..."
+DOC_COUNT=$(wait_for_docs "$LOCAL_ES_URL" "$ES_API_KEY_BASE64" "$INDEX_PREFIX") || {
+  echo "kibtrace test runner: no documents landed in ${INDEX_PREFIX}-* within 150s" >&2
+  echo "Inspect sandbox logs with:" >&2
+  echo "  cd validation/sandbox/variant-b-rollout && docker compose logs filebeat" >&2
+  exit 1
+}
+
+echo "Documents in Elasticsearch: $DOC_COUNT"
+echo "Fetching cross-service Variant B session..."
+
+FETCH_OUTPUT=$("$REPO_ROOT/scripts/kibtrace" fetch \
+  --es-url "$LOCAL_ES_URL" \
+  --index "${INDEX_PREFIX}-*" \
+  --since "$SINCE" \
+  --until "$UNTIL" \
+  --api-key "$ES_API_KEY_BASE64" \
+  --max-hits "$MAX_HITS")
+
+printf '%s\n' "$FETCH_OUTPUT"
+
+SESSION_ID=$(printf '%s\n' "$FETCH_OUTPUT" \
+  | sed -n 's/^[[:space:]]*"sessionId":[[:space:]]*"\([^"]*\)".*/\1/p' \
+  | head -1)
+
+if [ -z "$SESSION_ID" ]; then
+  echo "kibtrace test runner: could not extract sessionId from fetch output" >&2
+  exit 1
+fi
+
+echo "Preparing evidence..."
+"$REPO_ROOT/scripts/kibtrace" prepare --session-id "$SESSION_ID" --repo "$SEED_REPO"
+
+echo
+echo "Pack:"
+"$REPO_ROOT/scripts/kibtrace" pack --session-id "$SESSION_ID" --human
+
+echo "Code origin:"
+"$REPO_ROOT/scripts/kibtrace" code-origin --session-id "$SESSION_ID" --human
+
+echo "Next Claude prompt:"
+cat <<EOF
+Investigate kibtrace session $SESSION_ID.
+
+Use kibtrace as the log-side source of truth. Start with:
+1. kibtrace pack --session-id $SESSION_ID
+2. inspect the top evidence item if needed
+3. inspect code origin
+4. then inspect the relevant repo files under validation/seed-projects/cv-rollout-schema-drift
+
+Tell me:
+- the most likely incident
+- whether the issue is rollout/version-specific
+- the most likely code origin
+- the likely migration/schema mismatch
+- the evidence supporting that conclusion
+EOF
+
+echo
+echo "To stop the sandbox later:"
+echo "  npm run test:variant-b:down"
