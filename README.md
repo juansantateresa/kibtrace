@@ -1,53 +1,42 @@
 # kibtrace
 
-`kibtrace` helps engineers investigate production incidents from Elasticsearch logs without downloading GBs of raw data.
+`kibtrace` turns Elasticsearch logs into a compact investigation bundle that Claude can use together with your codebase.
 
-It fetches the relevant log slice, reduces it into ranked evidence, points to likely code locations, and gives Claude a compact context pack to reason over.
+Instead of exporting large log files from Kibana and pasting noisy context into an LLM, you:
 
-## Why it exists
+1. fetch the relevant log window
+2. prepare a local investigation session
+3. build a compact pack of evidence
+4. let Claude inspect that session and connect it to the code
 
-Typical workflow today:
-
-- open Kibana
-- search manually
-- export too many logs
-- grep or script locally
-- ask Claude with messy context
-
-`kibtrace` is meant to replace that with:
-
-1. `fetch`
-2. `prepare`
-3. `pack`
-4. Claude investigates with code context
-
-Kibana stays the human UI. `kibtrace` talks to Elasticsearch directly.
+`kibtrace` is the log-side reduction layer. Claude is the reasoning layer.
 
 ## What it does
 
 - fetches logs from Elasticsearch or OpenSearch
 - stores a local investigation session under `.kibtrace/sessions/`
-- extracts evidence such as repeated errors, trace timelines, stack groups, and retry patterns
-- correlates evidence with likely code locations
-- returns a compact pack for Claude
+- groups repeated failures into evidence items
+- extracts stack traces, trace timelines, and retry patterns
+- ranks likely code locations
+- produces a compact pack for Claude instead of raw log dumps
 
 ## What it does not do
 
-- it does not automate Kibana clicks
-- it is not a generic SIEM
-- it is not an LLM by itself
+- it does not replace Kibana
+- it does not click through the Kibana UI
+- it does not diagnose incidents by itself
+- it does not persist your credentials in session artifacts
 
-## Install From Source
+## Install
 
-Prerequisites:
+Requirements:
 
 - Node.js `>= 22`
-- Docker if you want to run the local validation scenarios
+- Docker if you want to run the local demo stack
 
 ```bash
 npm install
 npm run build
-./scripts/kibtrace --help
 ```
 
 Optional:
@@ -57,41 +46,45 @@ npm link
 kibtrace --help
 ```
 
-## Core Workflow
+If you do not link it globally, use `./scripts/kibtrace` from the repo root.
 
-### 1. Fetch logs
+## Quick Start
+
+Fetch a log slice:
 
 ```bash
 ./scripts/kibtrace fetch \
-  --es-url http://127.0.0.1:9200 \
+  --es-url https://your-elastic-host:9200 \
   --index 'logs-*' \
   --since 2026-04-13T00:00:00Z \
   --until 2026-04-13T23:59:59Z \
-  --max-hits 1000
+  --api-key '<base64-api-key>'
 ```
 
-### 2. Prepare evidence
+Prepare the session against the repo you want Claude to inspect:
 
 ```bash
 ./scripts/kibtrace prepare --latest --repo .
 ```
 
-### 3. Build the Claude-ready pack
+Build the compact investigation pack:
 
 ```bash
 ./scripts/kibtrace pack --latest
 ```
 
-### 4. Inspect details if needed
+Inspect one evidence item or the likely code origin if needed:
 
 ```bash
 ./scripts/kibtrace evidence --latest --id <evidence-id>
 ./scripts/kibtrace code-origin --latest
 ```
 
-`pack` is the preferred command for Claude-facing workflows.
+## Using With Claude Code
 
-## Claude Workflow
+Open Claude Code in the same repo after you have prepared a session.
+
+If `kibtrace` is on your `PATH`, Claude can call it directly. If not, use `./scripts/kibtrace`.
 
 Recommended prompt:
 
@@ -111,21 +104,17 @@ Tell me:
 - any uncertainty
 ```
 
-This repo also includes a local Claude Code plugin scaffold:
+If you want to pin Claude to a specific session instead of `--latest`, use:
 
-- [plugins/kibtrace/.claude-plugin/plugin.json](/Users/juansantateresagomez/kibanaskill/plugins/kibtrace/.claude-plugin/plugin.json)
-- [plugins/kibtrace/skills/investigate/SKILL.md](/Users/juansantateresagomez/kibanaskill/plugins/kibtrace/skills/investigate/SKILL.md)
-- [plugins/kibtrace/skills/report/SKILL.md](/Users/juansantateresagomez/kibanaskill/plugins/kibtrace/skills/report/SKILL.md)
-
-Local plugin test:
-
-```bash
-claude --plugin-dir ./plugins/kibtrace
+```text
+Investigate kibtrace session <session-id>.
 ```
 
-## Auth
+This repo also includes an optional Claude Code plugin scaffold under `plugins/kibtrace/`.
 
-Supported fetch auth modes:
+## Authentication
+
+`fetch` currently supports:
 
 - API key
 - basic auth
@@ -134,7 +123,7 @@ Supported fetch auth modes:
 API key example:
 
 ```bash
-export KIBTRACE_ES_API_KEY='your-base64-elastic-api-key'
+export KIBTRACE_ES_API_KEY='<base64-api-key>'
 
 ./scripts/kibtrace fetch \
   --es-url https://your-elastic-host:9200 \
@@ -145,68 +134,44 @@ export KIBTRACE_ES_API_KEY='your-base64-elastic-api-key'
 
 Notes:
 
-- the API key belongs to Elastic, not to `kibtrace`
-- `kibtrace` does not persist credentials
-- sessions store only `authMode`
+- the API key belongs to your Elastic cluster, not to `kibtrace`
+- `kibtrace` stores only the auth mode in the session, not the credential value
+- the local Docker demo uses Filebeat, which needs the decoded `id:key` form internally
 
-## Local Validation
+## Local Demo
 
-There are two validation paths in this repo, but only one should be treated as the canonical end-to-end test.
+The repo includes a local multi-service demo that emits ECS-style logs into Elasticsearch and reproduces a rollout/schema-drift incident.
 
-### Basic sandbox
-
-Single-service local validation:
-
-- [validation/sandbox/elastic-stack/](/Users/juansantateresagomez/kibanaskill/validation/sandbox/elastic-stack)
-- [validation/seed-projects/cv-db-failure-app/](/Users/juansantateresagomez/kibanaskill/validation/seed-projects/cv-db-failure-app)
-
-Use this for fast smoke testing.
-
-### Variant B realistic scenario
-
-Multi-service rollout/schema-drift validation:
-
-- sandbox: [validation/sandbox/variant-b-rollout/](/Users/juansantateresagomez/kibanaskill/validation/sandbox/variant-b-rollout)
-- seed repo: [validation/seed-projects/cv-rollout-schema-drift/](/Users/juansantateresagomez/kibanaskill/validation/seed-projects/cv-rollout-schema-drift)
-
-This is the realistic test case for the actual product promise:
-
-- healthy upstream pipeline
-- only `v2` persistence fails
-- rollout skew visible in logs
-- Claude must connect `kibtrace` evidence with repo code and migration context
-
-Canonical local test:
+If you already have a local authenticated Elasticsearch from `elastic-start-local`, run:
 
 ```bash
 npm run test:variant-b
 ```
 
-That single command:
+That command:
 
 - builds `kibtrace`
-- hydrates the Variant B sandbox from your local `elastic-start-local` env
-- starts the sandbox containers
-- waits for logs to land in Elasticsearch
+- starts the demo services
+- waits for logs to arrive
 - runs `fetch`
 - runs `prepare`
 - prints `pack`
 - prints `code-origin`
-- prints the exact Claude prompt to use next
+- prints the Claude prompt to use next
 
-Teardown:
+Stop the demo stack with:
 
 ```bash
 npm run test:variant-b:down
 ```
 
-If your `elastic-start-local` installation is not under `~/elastic-start-local/.env`, set:
+If your local `elastic-start-local` env file is not under `~/elastic-start-local/.env`, set:
 
 ```bash
 export KIBTRACE_START_LOCAL_ENV=/full/path/to/elastic-start-local/.env
 ```
 
-## Current CLI Surface
+## CLI Surface
 
 Main commands:
 
@@ -226,29 +191,27 @@ Session selectors:
 - `--session-id <id>`
 - `--session <path>`
 
-Run `./scripts/kibtrace --help` for the full surface.
+Run `./scripts/kibtrace --help` for the full command surface.
 
-## Current Status
+## Repository Layout
+
+- `src/` — CLI and investigation pipeline
+- `plugins/kibtrace/` — optional Claude Code plugin scaffold
+- `validation/seed-projects/` — sample applications used for local demos
+- `validation/sandbox/` — Docker-based demo environments
+- `validation/fixtures/` — expected outputs and fixtures for validation
+
+## Current Fit
 
 Best fit today:
 
 - ECS-like application logs
 - incidents with stack traces or trace ids
-- codebases available locally to Claude
-- Elastic-backed investigation workflows
+- repos available locally to Claude
+- engineering investigations where you want a compact, reviewable intermediate artifact
 
 Still evolving:
 
-- retrieval by natural-language question
-- richer semantic enrichment
-- alert-driven auto-triage
-
-## Development
-
-Useful commands:
-
-```bash
-npm run build
-npm run typecheck
-./scripts/kibtrace --help
-```
+- richer retrieval from natural-language questions
+- broader field-mapping configuration for non-ECS log shapes
+- automated alert-to-investigation workflows
